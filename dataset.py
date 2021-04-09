@@ -14,18 +14,25 @@ import os.path
 import numpy as np
 import pickle
 #%%
+
 class ToBayer(object):
     def remosaic(self,img):
         Nc, Ny, Nx = img.shape
+        R = np.zeros([2*Ny, 2*Nx])
+        G = np.zeros([2*Ny, 2*Nx])
         B = np.zeros([2*Ny, 2*Nx])
+        # R_mask = -1*np.ones([2*Ny, 2*Nx])
         for i in range(1,Ny):
             for j in range(1,Nx):
-                B[2*i-1,2*j-1] = img[0,i,j]
+                R[2*i-1,2*j-1] = img[0,i,j]
+                # R_mask[2*i-1,2*j-1] = 0
                 B[2*i,2*j] = img[2,i,j]
-                B[2*i,2*j-1] = img[1,i,j]
-                B[2*i-1,2*j] = img[1,i,j]
+                G[2*i,2*j-1] = img[1,i,j]
+                G[2*i-1,2*j] = img[1,i,j]
 
-        return B
+
+
+        return np.array([R,G,B])
 
     def __call__(self, pic):
         
@@ -65,7 +72,7 @@ class CIFAR10MosaicDataset(data.CIFAR10):
 
         if self.target_transform is not None:
             target = self.target_transform(target)
-        img = np.expand_dims(img, axis=0)
+        # img = np.expand_dims(img, axis=0)
 
         return img, img
 
@@ -90,5 +97,6 @@ for batch in trainloader:
     inputs, targets = batch
     print(inputs.shape)
     print(targets.shape)
+    plt.imshow(inputs[0,0,:])
     break
 # %%
