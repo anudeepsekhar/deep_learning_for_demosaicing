@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import copy
+import time
 
 from dataset import get_data_loaders
 from model import UNet
@@ -50,14 +52,19 @@ def print_metrics(metrics, epoch_samples, phase):
     for k in metrics.keys():
         outputs.append("{}: {:4f}".format(k, metrics[k] / epoch_samples))
         
-    print("{}: {}".format(phase, ", ".join(outputs)))  
+    print("\n {}: {}".format(phase, ", ".join(outputs)))  
 
 
 def train_model(model, optimizer, num_epochs=25):
+
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_loss = 1e10
+
     for epoch in (range(num_epochs)):
-        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+        print('\n Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 10)
 
+        since = time.time()
 
         for phase in ['train', 'val']:
             if phase == 'train':
@@ -68,7 +75,7 @@ def train_model(model, optimizer, num_epochs=25):
             metrics = defaultdict(float)
             epoch_samples = 0
 
-            for inputs, targets in dataloaders[phase]:
+            for inputs, targets in tqdm(dataloaders[phase]):
                 inputs = inputs.to(device)
                 targets = targets.to(device)
                 # print(inputs.shape)
@@ -101,15 +108,29 @@ def train_model(model, optimizer, num_epochs=25):
                 # statistics
                 epoch_samples += inputs.size(0)
 
-                print_metrics(metrics, epoch_samples, phase)
-                epoch_loss = metrics['loss'] / epoch_samples
+            print_metrics(metrics, epoch_samples, phase)
+            epoch_loss = metrics['loss'] / epoch_samples
+
+            # deep copy the model
+            if phase == 'val' and epoch_loss < best_loss:
+                print("saving best model")
+                best_loss = epoch_loss
+                best_model_wts = copy.deepcopy(model.state_dict())
+
+        time_elapsed = time.time() - since
+        print('{:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    print('Best val loss: {:4f}'.format(best_loss))
+
+    # load best model weights
+    model.load_state_dict(best_model_wts)
+    return model
 
 #%%
 dataloaders = get_data_loaders()
 model = UNet(n_class=3)
 model = model.to(device)
 optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-train_model(model, optimizer)
+model = train_model(model, optimizer, num_epochs=4)
 
                 
 # %%

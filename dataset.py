@@ -90,7 +90,7 @@ testset = CIFAR10MosaicDataset(root='./data', train=False,
 testloader = torch.utils.data.DataLoader(testset, batch_size=128,
                                          shuffle=False, num_workers=2)
 def get_data_loaders():
-    return {'train':trainloader, 'test':testloader}
+    return {'train':trainloader, 'val':testloader}
 
 # %%
 for batch in trainloader:
