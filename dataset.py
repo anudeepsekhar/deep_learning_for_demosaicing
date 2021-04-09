@@ -65,6 +65,7 @@ class CIFAR10MosaicDataset(data.CIFAR10):
 
         if self.target_transform is not None:
             target = self.target_transform(target)
+        img = np.expand_dims(img, axis=0)
 
         return img, img
 
@@ -83,3 +84,11 @@ testloader = torch.utils.data.DataLoader(testset, batch_size=4,
                                          shuffle=False, num_workers=2)
 def get_data_loaders():
     return trainloader, testloader
+
+# %%
+for batch in trainloader:
+    inputs, targets = batch
+    print(inputs.shape)
+    print(targets.shape)
+    break
+# %%
