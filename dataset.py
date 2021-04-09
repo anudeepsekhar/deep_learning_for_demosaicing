@@ -74,7 +74,7 @@ class CIFAR10MosaicDataset(data.CIFAR10):
             target = self.target_transform(target)
         # img = np.expand_dims(img, axis=0)
 
-        return img, img
+        return img.astype(np.float32), img.astype(np.float32)
 
 
     
@@ -82,15 +82,15 @@ class CIFAR10MosaicDataset(data.CIFAR10):
 #%%
 trainset = CIFAR10MosaicDataset(root='./data', train=True,
                                         download=True, transform=transform)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=4,
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=128,
                                           shuffle=True, num_workers=2)
 
 testset = CIFAR10MosaicDataset(root='./data', train=False,
                                        download=True, transform=transform)
-testloader = torch.utils.data.DataLoader(testset, batch_size=4,
+testloader = torch.utils.data.DataLoader(testset, batch_size=128,
                                          shuffle=False, num_workers=2)
 def get_data_loaders():
-    return trainloader, testloader
+    return {'train':trainloader, 'test':testloader}
 
 # %%
 for batch in trainloader:
