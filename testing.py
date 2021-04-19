@@ -1,4 +1,5 @@
 import numpy as np
+import math
 
 import torch
 import torch.nn as nn
@@ -10,12 +11,12 @@ import copy
 import time
 import pandas as pd
 from PIL import Image
-
-from model import UNet
+from torchvision.transforms import ToPILImage 
 from torch.utils.data import Dataset, DataLoader
 
-from dataset import ToBayer
-from utils import *
+from model import UNet
+from model_utils import *
+from dataset import *
 
 from tqdm import tqdm
 from collections import defaultdict
@@ -24,24 +25,33 @@ import os
 import cv2
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+trialNumber = 4
+checkpoint_path = "./checkpoint/"+"trial"+str(trialNumber)+"checkpoint.pt"
 
 
+# def print_metrics(metrics, epoch_samples, phase):    
+#       outputs = []
+#       for k in metrics.keys():
+#           outputs.append("{}: {:4f}".format(k, metrics[k] / epoch_samples))
+    
+#       print("\n {}: {}".format(phase, ", ".join(outputs)))  
 
 class McMaster_Dataset(Dataset):
-    def __init__(self, txt_path, img_dir,transform):
+    def __init__(self, txt_path, img_dir,transform,transform2):
         """
         Initialize data set as a list of IDs corresponding to each item of data set
 
         :param img_dir: path to image files as a uncompressed tar archive
         :param txt_path: a text file containing names of all of images line by line
         :param transform: apply some transforms like cropping, rotating, etc on input image
+        :param transform2: applies toTensor() only
         """
-
         self.df = pd.read_csv(txt_path, delim_whitespace=True,header=None)
         self.img_names = self.df.index.values
         self.txt_path = txt_path
         self.img_dir = img_dir
         self.transform = transform
+        self.transform2 = transform2
 
     def get_image_from_folder(self, name):
         """
@@ -75,76 +85,109 @@ class McMaster_Dataset(Dataset):
         img = self.get_image_from_folder(self.df.iloc[index,0])
         # crop into 32x32
         width, height = img.size
-        # left = width//2-16
-        # top = height//2+16
-        # right = left + 31
-        # bottom = top -31
-        left = 0
-        top = 0
-        right = 32
-        bottom = 32
+        left = width//2-16
+        top = height//2-16
+        right = left + 32
+        bottom = top + 32
+        # left = 0
+        # top = 0
+        # right = 32
+        # bottom = 32
         # img.crop((left, top, right, bottom))
 
-        img1 = img.crop((left, top, right, bottom))
+        img1_original = img.crop((left, top, right, bottom))
 
-        img1 = self.transform(img1)
-        # img.astype(np.float32)
-        # print("img size:",img.shape)
-        return img1.astype(np.float32),img1.astype(np.float32)
-        # return img
+        img1 = self.transform(img1_original)
 
-def print_metrics(metrics, epoch_samples, phase):    
-      outputs = []
-      for k in metrics.keys():
-          outputs.append("{}: {:4f}".format(k, metrics[k] / epoch_samples))
-    
-      print("\n {}: {}".format(phase, ", ".join(outputs)))  
+        img1_original = self.transform2(img1_original)
 
-def test_model(model,dataloader):
-  with torch.no_grad():
-    model.eval()
-    metrics = defaultdict(float)
-    epoch_samples = 0
-    for inputs,targets in tqdm(dataloader):
-      inputs = inputs.to(device)
-      targets = targets.to(device)
-      # print(inputs.shape)
-      batch_size, Nc, Ny, Nx = inputs.shape
-      mask_original, mask_interm = create_masks(batch_size, Nc, Ny, Nx)
-      mask_interm = mask_interm.to(device)
-      mask_original = mask_original.to(device)
+        return img1.float(),img1_original.float()
 
-       #first pass
-      interm = model(inputs)
-      #TODO: implement the masking logic
-      # mask out original values in interm
-      interm_input = torch.mul(interm,mask_original)
-      final = model(interm_input)
-      # mask out interm values
-      final = torch.mul(interm,mask_interm)
-      # Calculate L2 loss
-      loss = calc_loss(final, targets, metrics)
-
-      # statistics
-      epoch_samples += inputs.size(0)
-
-    print_metrics(metrics, epoch_samples,'test')
 
 def get_mcmaster_loader():
     txt_path = "./mcmaster_path.csv"
     img_dir = "./data/McM"
-    mcmaster_dataset = McMaster_Dataset(txt_path=txt_path, img_dir=img_dir, transform=transform)
+    mcmaster_dataset = McMaster_Dataset(txt_path=txt_path, img_dir=img_dir, transform=transform, transform2=transform2)
     test_dataloader = torch.utils.data.DataLoader(mcmaster_dataset, batch_size=1, 
-                                                shuffle=True, num_workers=8)
+                                                shuffle=False, num_workers=8)
     return test_dataloader
+
+def test_model(model,dataloader,image_saving_dir):
+  print("Testing...")
+  with torch.no_grad():
+    model.eval()
+    test_loss = 0.0
+    for batch,(inputs,targets) in enumerate(tqdm(dataloader)):
+      inputs = inputs.to(device)
+      targets = targets.to(device)
+
+      batch_size, Nc, Ny, Nx = inputs.shape
+      model_output = model(inputs)
+
+      # pdb.set_trace()
+      # replace with original correct pixel values in certain locations
+      result = model_output.clone()
+  
+      # green channel
+      for k in range(batch_size):
+        for i in range(0,Ny,1): #row
+          for j in range(0,Nx,2): #column
+            if (i%2)==0: # even rows
+              result[k,1,i,j+1] = targets[k,1,i,j+1]
+            elif (i%2)==1: # odd rows
+              result[k,1,i,j] = targets[k,1,i,j]
+
+      # red channel and blue channel
+      for i in range(0,Ny,2):
+        for j in range(0,Nx,2):
+          result[k,2,i,j] = targets[k,2,i,j] # blue channel
+          result[k,0,i+1,j+1] = targets[k,0,i+1,j+1] # red channel
+
+      # Calculate L2 loss
+      criterion = nn.MSELoss()
+      loss = criterion(result, targets)
+
+      test_loss += loss.item()
+
+      # compute peak snr
+      # max pixel value
+      peak_pixel_value = torch.max(result)
+      # MSE
+      loss = nn.MSELoss(reduction='mean')
+      mse = loss(result,targets)
+
+      peak_snr = 10*math.log10(peak_pixel_value**2/mse)
+      print('peak_snr: {:.2f} decibel'.format(peak_snr))
+
+      # saves the image for visual comparison
+      file_name = 'McM_'+str(batch+1)+'.png'
+      dir_path = image_saving_dir +'/'+file_name
+      torchvision.utils.save_image(torch.squeeze(result),dir_path)
+      # result_img = ToPILImage()(torch.squeeze(result)) # squeeze to get rid of the extra dimension of 1 batch
+      # result_img.save(dir_path,"PNG")
+
+    num_batch = len(dataloader)
+    test_loss /= num_batch
+    # print_metrics(metrics, num_batch, 'train')
+    print('Average test loss: {:.2f}'.format(test_loss))
+
+
+
+
+
+
 
 if __name__ == "__main__":
   dataloader = get_mcmaster_loader()
-  model_path_retrieve = "./model/trial1.pth"
+  model_path_retrieve = "./model/"+"trial"+str(trialNumber)+".pth"
   model = UNet(n_class=3)
   model.load_state_dict(torch.load(model_path_retrieve))
   model = model.to(device)
-  test_model(model, dataloader)
+
+  if not os.path.exists('./data/McM_outs'):
+    os.makedirs('./data/McM_outs')
+  image_saving_dir = './data/McM_outs'
+  test_model(model, dataloader,image_saving_dir)
   # if not os.path.exists('model'):
   #   os.makedirs('model')
   # filename = "./model/"+"trial"+str(trialNumber)+".pth"

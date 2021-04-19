@@ -45,7 +45,15 @@ class UNet(nn.Module):
         
         x = self.dconv_down4(x)
         
-        x = self.upsample(x)        
+        x = self.upsample(x)
+        # print("conv3.shape: ",conv3.shape)
+        # print("x.shape: ",x.shape)
+        # # crop 
+        # if (conv3.shape[2] != x.shape[2]) or (conv3.shape[3] != x.shape[3]):
+        #   new_size = x.shape[2] if (x.shape[2] <= x.shape[3]) else x.shape[3]
+        #   conv3_cropped = conv3[:,:,0:new_size+1, 0:new_size+1]
+        # else:
+        #   conv3_cropped = conv3
         x = torch.cat([x, conv3], dim=1)
         
         x = self.dconv_up3(x)
