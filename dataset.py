@@ -7,6 +7,7 @@ import torchvision
 import torchvision.transforms as transforms
 import torchvision.datasets as data
 from torchvision.transforms import ToPILImage 
+from torch.utils.data import Dataset, DataLoader
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -136,7 +137,81 @@ class CIFAR10MosaicDataset(data.CIFAR10):
         # return img.astype(np.float32), img.astype(np.float32)
         return img.float(), img_original.float()
 
+class McMaster_Dataset(Dataset):
+    def __init__(self, txt_path, img_dir,transform,transform2):
+        """
+        Initialize data set as a list of IDs corresponding to each item of data set
 
+        :param img_dir: path to image files as a uncompressed tar archive
+        :param txt_path: a text file containing names of all of images line by line
+        :param transform: apply some transforms like cropping, rotating, etc on input image
+        :param transform2: applies toTensor() only
+        """
+        self.df = pd.read_csv(txt_path, delim_whitespace=True,header=None)
+        self.img_names = self.df.index.values
+        self.txt_path = txt_path
+        self.img_dir = img_dir
+        self.transform = transform
+        self.transform2 = transform2
+
+    def get_image_from_folder(self, name):
+        """
+        gets a image by a name gathered from file list text file
+
+        :param name: name of targeted image
+        :return: a PIL image
+        """
+
+        image = Image.open(os.path.join(self.img_dir, name))
+
+        return image
+
+    def __len__(self):
+        """
+        Return the length of data set using list of IDs
+
+        :return: number of samples in data set
+        """
+        return len(self.img_names)
+
+    def __getitem__(self, index):
+        """
+        Generate one item of data set.
+
+        :param index: index of item in IDs list
+
+        :return: a sample of data as a dict
+        """
+
+        img = self.get_image_from_folder(self.df.iloc[index,0])
+        # crop into 32x32
+        width, height = img.size
+        left = width//2-16
+        top = height//2-16
+        right = left + 32
+        bottom = top + 32
+        # left = 0
+        # top = 0
+        # right = 32
+        # bottom = 32
+        # img.crop((left, top, right, bottom))
+
+        img1_original = img.crop((left, top, right, bottom))
+
+        img1 = self.transform(img1_original)
+
+        img1_original = self.transform2(img1_original)
+
+        return img1.float(),img1_original.float()
+
+
+def get_mcmaster_loader():
+    txt_path = "./mcmaster_path.csv"
+    img_dir = "./data/McM"
+    mcmaster_dataset = McMaster_Dataset(txt_path=txt_path, img_dir=img_dir, transform=transform, transform2=transform2)
+    test_dataloader = torch.utils.data.DataLoader(mcmaster_dataset, batch_size=1, 
+                                                shuffle=False, num_workers=8)
+    return test_dataloader
     
 
 #%%

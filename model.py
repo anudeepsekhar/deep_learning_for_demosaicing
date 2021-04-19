@@ -46,14 +46,6 @@ class UNet(nn.Module):
         x = self.dconv_down4(x)
         
         x = self.upsample(x)
-        # print("conv3.shape: ",conv3.shape)
-        # print("x.shape: ",x.shape)
-        # # crop 
-        # if (conv3.shape[2] != x.shape[2]) or (conv3.shape[3] != x.shape[3]):
-        #   new_size = x.shape[2] if (x.shape[2] <= x.shape[3]) else x.shape[3]
-        #   conv3_cropped = conv3[:,:,0:new_size+1, 0:new_size+1]
-        # else:
-        #   conv3_cropped = conv3
         x = torch.cat([x, conv3], dim=1)
         
         x = self.dconv_up3(x)
@@ -69,6 +61,117 @@ class UNet(nn.Module):
         out = self.conv_last(x)
         
         return out
+
+# for resnet
+class SimpleResidualBlock(nn.Module):
+    def __init__(self, in_channel_size, out_channel_size, identity_downsample=None, stride=1):
+        super().__init__()
+
+        self.conv1 = nn.Conv2d(in_channel_size, out_channel_size, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channel_size)
+        self.conv2 = nn.Conv2d(out_channel_size, out_channel_size, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channel_size)
+        
+        self.relu = nn.ReLU()
+        self.identity_downsample = identity_downsample
+        self.stride = stride
+    def forward(self, x):
+        identity = x
+        # print("identity:", identity)
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.stride!=1:
+            # print("self.stride is not 1, self.identity_downsample applied")
+            identity = self.identity_downsample(x)
+
+        # print("out shape", out.shape)
+        # print("identity shape", identity.shape)
+        out += identity
+        out = self.relu(out)    
+        # shortcut = self.shortcut(x)
+        
+        # out = self.relu(out + shortcut)
+        
+        return out
+
+# resnet 34
+# Reference: https://gist.github.com/nikogamulin/7774e0e3988305a78fd73e1c4364aded
+class Resnet34(nn.Module):
+    def __init__(self, block, in_features):
+        super().__init__()
+        layers = [3, 4, 6, 3]
+        # class attributes
+        self.in_channels = 64
+        self.expansion = 1
+
+        self.conv1 = nn.Conv2d(in_features, self.in_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU()
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        # resnet layers
+        self.layer1 = self.make_layers(block, layers[0], intermediate_channels=64, stride=1)
+        self.layer2 = self.make_layers(block, layers[1], intermediate_channels=128, stride=2)
+        self.layer3 = self.make_layers(block, layers[2], intermediate_channels=256, stride=2)
+        self.layer4 = self.make_layers(block, layers[3], intermediate_channels=512, stride=2)
+
+        # another extra conv layer to correct the channel to 3
+        self.conv2 = nn.Conv2d(512,3,kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn2 = nn.BatchNorm2d(3)
+
+        self.avgpool = nn.AdaptiveAvgPool2d((32, 32))
+        # self.flattenlayer = nn.Flatten()
+        # self.dropoutlayer = nn.Dropout(p=0.3)
+        # self.fc = nn.Linear(512,num_classes) 
+
+           
+    def forward(self, x):
+        # print("input shape: ",x.shape)
+        x = self.conv1(x)
+        # print("x after self.conv1 shape: ",x.shape)
+        x = self.bn1(x)
+        # print("x after self.bn1 shape: ",x.shape)
+        x = self.relu(x)
+        # print("x after self.relu shape: ",x.shape)
+        x = self.maxpool(x)
+        # print("x after self.maxpool shape: ",x.shape)
+        # x = self.dropoutlayer(x)
+        x = self.layer1(x)
+        # print("x after self.layer1 shape: ",x.shape)
+        x = self.layer2(x)
+        # print("x after self.layer2 shape: ",x.shape)
+        x = self.layer3(x)
+        # print("x after self.layer3 shape: ",x.shape)
+        x = self.layer4(x)
+        # print("x after self.layer4 shape: ",x.shape)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        # print("x after self.conv2 shape: ",x.shape)
+
+        output = self.avgpool(x)
+
+        # embedding = self.flattenlayer(x)
+        # embedding = self.dropoutlayer(embedding)
+        # output = self.fc(embedding)
+        # return output,embedding
+
+        return output
+ 
+    def make_layers(self, block, num_residual_blocks, intermediate_channels, stride):
+        layers = []
+        downsample = None
+        if stride != 1 or self.in_channels!=intermediate_channels*self.expansion:
+          downsample = nn.Sequential(nn.Conv2d(self.in_channels, intermediate_channels*self.expansion, kernel_size=1, stride=stride),
+                                            nn.BatchNorm2d(intermediate_channels*self.expansion))
+        layers.append(block(self.in_channels, intermediate_channels,identity_downsample=downsample,stride=stride))
+        self.in_channels = intermediate_channels * self.expansion # 256 # next residual block's in_channel will be the block's typical channel number
+        for i in range(num_residual_blocks - 1):
+            layers.append(block(self.in_channels, intermediate_channels)) # 256 -> 64, 64*4 (256) again
+        return nn.Sequential(*layers)
 
 #%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

@@ -3,3 +3,4 @@ __pycache__/
 model/
 git.ipynb
 checkpoint/
+checkpoint_resnet/

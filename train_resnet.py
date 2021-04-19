@@ -11,16 +11,16 @@ import pdb
 
 from model_utils import *
 from dataset import get_data_loaders
-from model import UNet
+from model import Resnet34,SimpleResidualBlock
 
 from tqdm import tqdm
 from collections import defaultdict
 import os
 
 resume_from_ckp = True
-trialNumber = 4
-checkpoint_path = "./checkpoint/"+"trial"+str(trialNumber)+"checkpoint.pt"
-num_epochs = 4
+trialNumber = 1
+checkpoint_path = "./checkpoint_resnet/"+"trial"+str(trialNumber)+"checkpoint.pt"
+num_epochs = 10
 
 #%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -30,7 +30,7 @@ def save_ckp(state, checkpoint_dir):
     torch.save(state, f_path)
 
 
-def train_model(model, optimizer, num_epochs,start_epoch,checkpoint_dir):
+def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_dir):
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = 1e10
@@ -59,23 +59,10 @@ def train_model(model, optimizer, num_epochs,start_epoch,checkpoint_dir):
 
             # forward
             
-            # pass through UNet
-            model_output = model(inputs)
-            
-            # create mask once
-            if not mask_is_created:
-              mask = create_RGB_masks(inputs[0]) # create a mask for a single image
-              mask_is_created = True
-            # In the following: mask.unsqueeze(0) turns mask from an [C, M, N] to [1, C, M, N] 
-            # and .repeat(batch_size,1, 1, 1) repeats the tensor batch_size times along the zeroth dimension.
-            mask_expanded = mask.unsqueeze(0).repeat(batch_size,1, 1, 1) 
-            mask_expanded = mask_expanded.to(device)
+            # pass through resnet
+            result = model(inputs)
 
-            # apply mask to the batch of model_output and targets
-            result = model_output*mask_expanded
-            targets = targets*mask_expanded
-
-            # Calculate L2 loss
+            # Calculate loss
             criterion = nn.MSELoss()
             loss = criterion(result.float(), targets.float())
  
@@ -83,7 +70,6 @@ def train_model(model, optimizer, num_epochs,start_epoch,checkpoint_dir):
             optimizer.step()
 
             training_loss += loss.item()
-            # statistics
 
         num_batch = len(dataloaders['train'])
         training_loss /= num_batch
@@ -92,13 +78,12 @@ def train_model(model, optimizer, num_epochs,start_epoch,checkpoint_dir):
         'epoch': epoch + 1,
         'state_dict': model.state_dict(),
         'optimizer': optimizer.state_dict(),
-        # 'scheduler': scheduler.state_dict()
+        'scheduler': scheduler.state_dict()
         }
         # saves the checkpoint for resuming in case instance disconnected
 
         save_ckp(checkpoint, checkpoint_dir)
 
-        # print_metrics(metrics, num_batch, 'train')
         print('Epoch: {}, Average training loss: {:.6f}'.format(epoch+1,training_loss))
         
         # validate
@@ -116,23 +101,10 @@ def train_model(model, optimizer, num_epochs,start_epoch,checkpoint_dir):
 
             # forward
             
-            # pass through UNet
-            model_output = model(inputs)
+            # pass through resnet
+            result = model(inputs)
 
-            # create mask once
-            if not mask_is_created:
-              mask = create_RGB_masks(inputs[0]) # create a mask for a single image
-              mask_is_created = True
-            # In the following: mask.unsqueeze(0) turns mask from an [C, M, N] to [1, C, M, N] 
-            # and .repeat(batch_size,1, 1, 1) repeats the tensor batch_size times along the zeroth dimension.
-            mask_expanded = mask.unsqueeze(0).repeat(batch_size,1, 1, 1) 
-            mask_expanded = mask_expanded.to(device)
-
-            # apply mask to the batch of model_output and targets
-            result = model_output*mask_expanded
-            targets = targets*mask_expanded
-
-            # Calculate L2 loss
+            # Calculate loss
             criterion = nn.MSELoss()
             loss = criterion(result.float(), targets.float())
 
@@ -143,6 +115,7 @@ def train_model(model, optimizer, num_epochs,start_epoch,checkpoint_dir):
         val_loss /= num_batch
 
         print('Epoch: {}, Average validating loss: {:.6f}'.format(epoch+1,val_loss))
+        scheduler.step(val_loss)
 
 
         # deep copy the model
@@ -162,28 +135,33 @@ def train_model(model, optimizer, num_epochs,start_epoch,checkpoint_dir):
 #%%
 if __name__ == "__main__":
   dataloaders = get_data_loaders()
-  model = UNet(n_class=3)
+  in_features = 3 # RGB channels
+  learningRate = 0.1
+  weightDecay = 5e-5
+
+  model = Resnet34(SimpleResidualBlock,in_features)
   model = model.to(device)
-  optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+  optimizer = torch.optim.SGD(model.parameters(), lr=learningRate, weight_decay=weightDecay, momentum=0.9)
+  scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,'min',patience=1,factor=0.1,verbose=True)
 
   if resume_from_ckp:
     ckp_path = checkpoint_path
     ckp = torch.load(ckp_path, map_location=device)
     model.load_state_dict(ckp['state_dict'])
     optimizer.load_state_dict(ckp['optimizer'])
-    # scheduler.load_state_dict(ckp['scheduler'])
+    scheduler.load_state_dict(ckp['scheduler'])
     start_epoch = ckp['epoch']
     print("Resuming from checkpoint...")
     del ckp
   else:
     start_epoch = 0
   
-  if not os.path.exists('checkpoint'):
-    os.makedirs('checkpoint')
+  if not os.path.exists('checkpoint_resnet'):
+    os.makedirs('checkpoint_resnet')
   
-  model = train_model(model, optimizer, num_epochs=num_epochs, start_epoch=start_epoch,checkpoint_dir=checkpoint_path)
-  if not os.path.exists('model'):
-    os.makedirs('model')
+  model = train_model(model, optimizer, scheduler, num_epochs=num_epochs, start_epoch=start_epoch,checkpoint_dir=checkpoint_path)
+  if not os.path.exists('model_resnet'):
+    os.makedirs('model_resnet')
   filename = "./model/"+"trial"+str(trialNumber)+".pth"
   torch.save(model.state_dict(), filename)
                 

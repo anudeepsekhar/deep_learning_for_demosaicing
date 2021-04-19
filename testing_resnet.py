@@ -14,9 +14,9 @@ from PIL import Image
 from torchvision.transforms import ToPILImage 
 from torch.utils.data import Dataset, DataLoader
 
-from model import UNet
+from model import Resnet34,SimpleResidualBlock
 from model_utils import *
-from dataset import *
+from dataset import McMaster_Dataset,get_mcmaster_loader
 
 from tqdm import tqdm
 from collections import defaultdict
@@ -25,7 +25,7 @@ import os
 import cv2
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-trialNumber = 4
+trialNumber = 1
 
 def test_model(model,dataloader,image_saving_dir):
   print("Testing...")
@@ -83,17 +83,19 @@ def test_model(model,dataloader,image_saving_dir):
 
     num_batch = len(dataloader)
     test_loss /= num_batch
+    # print_metrics(metrics, num_batch, 'train')
     print('Average test loss: {:.6f}'.format(test_loss))
 
 
 if __name__ == "__main__":
   dataloader = get_mcmaster_loader()
   model_path_retrieve = "./model/"+"trial"+str(trialNumber)+".pth"
-  model = UNet(n_class=3)
+  in_features = 3 # RGB channels
+  model = Resnet34(SimpleResidualBlock,in_features)
   model.load_state_dict(torch.load(model_path_retrieve))
   model = model.to(device)
 
-  if not os.path.exists('./data/McM_outs'):
-    os.makedirs('./data/McM_outs')
-  image_saving_dir = './data/McM_outs'
+  if not os.path.exists('./data/McM_outs_resnet'):
+    os.makedirs('./data/McM_outs_resnet')
+  image_saving_dir = './data/McM_outs_resnet'
   test_model(model, dataloader,image_saving_dir)
