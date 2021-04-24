@@ -5,6 +5,14 @@ To obtain the mcmaster dataset (test set), following the following steps:
 3. Run `unzip -P McM_CDM ./data/McM.zip -d "./data"`
 4. Run `rm ./data/McM.zip`
 
+To obtain the CUB200 dataset, follow these steps:
+1. Create `data` folder if it does not exist yet
+2. Manually download the `.tgz` file from this link (http://www.vision.caltech.edu/visipedia-data/CUB-200-2011/CUB_200_2011.tgz) to your local machine
+3. Upload the `.tgz` to your `data` folder
+4. Run `tar -xvzf "./data/CUB200/CUB_200_2011.tgz"`
+5. Manually move the extracted `CUB_200_2011` to the `data` folder
+6. Manually delete the `.tgz` file from the `data` folder
+
 ## Unet
 Relevant scripts: `train.py`, `testing.py`
 
