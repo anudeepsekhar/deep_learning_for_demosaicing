@@ -3,24 +3,26 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import copy
 import time
 import pdb
 
 from model_utils import *
-from dataset import get_data_loaders
-from model import Resnet34,SimpleResidualBlock
+from dataset import get_CUB200_loader
+from model import ResidualBlock_Superresolution,Net_Superresolution
 
 from tqdm import tqdm
-from collections import defaultdict
 import os
+import math
+from PIL import Image
+
+import pickle
 
 resume_from_ckp = True
 trialNumber = 1
-checkpoint_path = "./checkpoint_resnet/"+"trial"+str(trialNumber)+"checkpoint.pt"
-num_epochs = 30
+checkpoint_path = "./checkpoint_superresolution/"+"trial"+str(trialNumber)+"checkpoint.pt"
+num_epochs = 1000
 
 #%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -46,21 +48,16 @@ def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_d
         print("Training...")
         training_loss = 0.0
             
-        metrics = defaultdict(float)
             # epoch_samples = 0
-        mask_is_created = False
+
         for inputs, targets in tqdm(dataloaders['train']):
             # zero the parameter gradients
             optimizer.zero_grad()
             inputs = inputs.to(device)
             targets = targets.to(device)
 
-            batch_size, Nc, Ny, Nx = inputs.shape
-
-            # forward
-            
-            # pass through resnet
             result = model(inputs)
+            print('result.shape: ',result.shape)
 
             # Calculate loss
             criterion = nn.MSELoss()
@@ -91,17 +88,11 @@ def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_d
         model.eval()
         val_loss = 0.0
 
-        mask_is_created = False
         for inputs, targets in tqdm(dataloaders['val']):
           with torch.no_grad():
             inputs = inputs.to(device)
             targets = targets.to(device)
 
-            batch_size, Nc, Ny, Nx = inputs.shape
-
-            # forward
-            
-            # pass through resnet
             result = model(inputs)
 
             # Calculate loss
@@ -132,16 +123,29 @@ def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_d
     model.load_state_dict(best_model_wts)
     return model
 
+
+
 #%%
 if __name__ == "__main__":
-  dataloaders = get_data_loaders()
-  in_features = 3 # RGB channels
-  learningRate = 0.1
+  dataloaders = get_CUB200_loader()
+
+  # save dataloaders to file for use in testing script
+  # Open a file and use dump()
+  var_save_dir = './data/variables'
+  var_name = 'dataloaders.pkl'
+  path = var_save_dir + '/' + var_name
+  if not os.path.exists(var_save_dir):
+    os.makedirs(var_save_dir)
+  with open(path, 'wb') as file:
+    # A new file will be created
+    pickle.dump(dataloaders, file)
+
+  lr = 1e-4
   weightDecay = 5e-5
 
-  model = Resnet34(SimpleResidualBlock,in_features)
+  model = Net_Superresolution()
   model = model.to(device)
-  optimizer = torch.optim.SGD(model.parameters(), lr=learningRate, weight_decay=weightDecay, momentum=0.9)
+  optimizer = torch.optim.Adam(model.parameters(), lr=lr,weight_decay=weightDecay)
   scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,'min',patience=1,factor=0.1,verbose=True)
 
   if resume_from_ckp:
@@ -156,13 +160,18 @@ if __name__ == "__main__":
   else:
     start_epoch = 0
   
-  if not os.path.exists('checkpoint_resnet'):
-    os.makedirs('checkpoint_resnet')
+  if not os.path.exists('checkpoint_superresolution'):
+    os.makedirs('checkpoint_superresolution')
   
   model = train_model(model, optimizer, scheduler, num_epochs=num_epochs, start_epoch=start_epoch,checkpoint_dir=checkpoint_path)
-  if not os.path.exists('model_resnet'):
-    os.makedirs('model_resnet')
+  if not os.path.exists('model_superresolution'):
+    os.makedirs('model_superresolution')
   filename = "./model/"+"trial"+str(trialNumber)+".pth"
   torch.save(model.state_dict(), filename)
-                
+
+  # image_saving_dir = './data/CUB200_outs'
+  # if not os.path.exists('image_saving_dir'):
+  #   os.makedirs('image_saving_dir')
+  # test_model(model,image_saving_dir)
+
 # %%

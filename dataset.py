@@ -8,6 +8,9 @@ import torchvision.transforms as transforms
 import torchvision.datasets as data
 from torchvision.transforms import ToPILImage 
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.sampler import SubsetRandomSampler
+from tqdm import tqdm
+import time
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -17,6 +20,10 @@ import os.path
 import numpy as np
 import pickle
 #%%
+
+BLOCK_SIZE = 128  # Ground Truth image size
+TRAIN_DATA_SAVE_PATH = "./CUB200_TRAIN_DATA"
+TEST_DATA_SAVE_PATH = "./CUB200_TEST_DATA"
 
 class ToBayer(object):
     def remosaic(self,img):
@@ -44,12 +51,58 @@ class ToBayer(object):
     def __repr__(self):
         return self.__class__.__name__ + '()'
 
-# resample the original RGB image into four subsamples
+# taken from https://github.com/GitHberChen/Deep-Residual-Network-for-JointDemosaicing-and-Super-Resolution/blob/a224f0ea673d70c26ee17aec9f27e1a7c31cbe8e/img_to_imgblk.py
+def To_Bayer(img):
+    w, h = img.size
+    img = img.resize((int(w / 2), int(h / 2)), Image.ANTIALIAS)
+    w, h = img.size
+    # r,g,b=img.split()
+    data = np.array(img)
+    """
+    R G R G
+    G B G B
+    R G R G
+    G B G B
+    """
+    bayer_mono = np.zeros((h, w))
+    for r in range(h):
+        for c in range(w):
+            if (0 == r % 2):
+                if (1 == c % 2):
+                    data[r, c, 0] = 0
+                    data[r, c, 2] = 0
+
+                    bayer_mono[r, c] = data[r, c, 1]
+                else:
+                    data[r, c, 1] = 0
+                    data[r, c, 2] = 0
+
+                    bayer_mono[r, c] = data[r, c, 0]
+            else:
+                if (0 == c % 2):
+                    data[r, c, 0] = 0
+                    data[r, c, 2] = 0
+
+                    bayer_mono[r, c] = data[r, c, 1]
+                else:
+                    data[r, c, 0] = 0
+                    data[r, c, 1] = 0
+
+                    bayer_mono[r, c] = data[r, c, 2]
+
+    # Three channel Bayer image
+    bayer = Image.fromarray(data)
+    # bayer.show()
+
+    return bayer
+
+
+# resample the original RGB image into three subsamples
 class Resampling(object):
     # def __init__(self,img):
     #   self.img = img
 
-    def resample(self,img):
+    def resample(self,img,downsize=False):
         Nc, Ny, Nx = img.shape
         R = np.zeros([Ny, Nx])
         G = np.zeros([Ny, Nx])
@@ -59,7 +112,8 @@ class Resampling(object):
         for i in range(0,Ny,1): #row
           for j in range(0,Nx,2): #column
             if (i%2)==0: # even rows
-              G[i,j+1] = img[1,i,j+1]
+              if (j+1)<=Nx-1:
+                G[i,j+1] = img[1,i,j+1]
             elif (i%2)==1: # odd rows
               G[i,j] = img[1,i,j]
 
@@ -67,7 +121,8 @@ class Resampling(object):
         for i in range(0,Ny,2):
           for j in range(0,Nx,2):
             B[i,j] = img[2,i,j] # blue channel
-            R[i+1,j+1] = img[0,i+1,j+1] # red channel
+            if (i+1)<=Ny-1 and (j+1)<=Nx-1:
+              R[i+1,j+1] = img[0,i+1,j+1] # red channel
         
         # self.resampled = np.array([R,G,B])
         # print("RGB resampled: ", np.array([R,G,B]))
@@ -76,6 +131,40 @@ class Resampling(object):
     def __call__(self, img):
         
         return self.resample(img)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '()'
+
+# resample the original RGB image into a Bayer image
+class Resampling_Bayer(object):
+    # def __init__(self,img):
+    #   self.img = img
+
+    def resample_bayer(self,img):
+        Nc, Ny, Nx = img.shape
+        bayer = np.zeros([Ny, Nx])
+
+        # green channel
+        for i in range(0,Ny,1): #row
+          for j in range(0,Nx,2): #column
+            if (i%2)==0: # even rows
+              if (i+1)<=Ny-1 and (j+1)<=Nx-1:
+                bayer[i,j+1] = img[1,i,j+1] # prevents breaking if image size does not allow another green pixel
+            elif (i%2)==1: # odd rows
+              bayer[i,j] = img[1,i,j]
+
+        # red channel and blue channel
+        for i in range(0,Ny,2):
+          for j in range(0,Nx,2):
+            bayer[i,j] = img[2,i,j] # blue channel
+            if (i+1)<=Ny-1 and (j+1)<=Nx-1: # prevents breaking if image size does not allow another red pixel
+              bayer[i+1,j+1] = img[0,i+1,j+1] # red channel
+        
+        return torch.from_numpy(bayer)
+
+    def __call__(self, img):
+        
+        return self.resample_bayer(img)
 
     def __repr__(self):
         return self.__class__.__name__ + '()'
@@ -94,6 +183,20 @@ transform2 = transforms.Compose(
         transforms.ToTensor()
 
      ])
+
+transform3 = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        Resampling_Bayer()
+
+     ])
+# taken from https://github.com/GitHberChen/Deep-Residual-Network-for-JointDemosaicing-and-Super-Resolution/blob/master/img_to_imgblk.py
+def DownSize(img):
+    for i in range(3):
+        w, h = img.size
+        # print(int(w / 1.25), int(h / 1.25))
+        img = img.resize((int(w / 1.25), int(h / 1.25)), Image.ANTIALIAS)
+    return img
 
 class CIFAR10MosaicDataset(data.CIFAR10):
     def __init__(self, root, train, download, transform=None):
@@ -204,6 +307,105 @@ class McMaster_Dataset(Dataset):
 
         return img1.float(),img1_original.float()
 
+def preprocess_CUB200_Dataset(save_path, txt_file_path,img_dir):
+  if not os.path.exists(save_path):
+    os.makedirs(save_path)
+  image_info = pd.read_csv(txt_file_path, delim_whitespace=True,header=None,names=['id','path'])
+  time_start = time.perf_counter()
+
+  for i in tqdm(range(image_info.shape[0])):
+    image_path = image_info.iloc[i,1]
+    image_id = image_info.iloc[i,0]
+    image_full_path = img_dir + '/' + image_path
+    img = Image.open(image_full_path)
+    # only proceed if image has three channels
+    if np.array(img).ndim ==3:
+      img = DownSize(img)
+      # img.show()
+      w, h = img.size
+
+      row = int(h / BLOCK_SIZE)-1
+      col = int(w / BLOCK_SIZE)-1
+      print("Image_id:", image_id, "WxH=", w, 'x', h)
+      patch_id = 0
+      for r in range(row):
+        for c in range(col):
+          temp = img.crop((r * BLOCK_SIZE, c * BLOCK_SIZE, (r + 1) * BLOCK_SIZE, (c + 1) * BLOCK_SIZE)).convert(
+                    'RGB')
+
+          temp_bayer = To_Bayer(temp)
+          image_save_folder = save_path + '/' + str(image_id)
+          if not os.path.exists(image_save_folder):
+            os.makedirs(image_save_folder)
+
+          data_str = save_path + '/' + str(image_id) + '/' + str(image_id) +'_'+ str(patch_id)+'_'+'data.TIF'
+          label_str = save_path + '/' + str(image_id) + '/' + str(image_id) +'_'+ str(patch_id)+'_'+ 'label.TIF'
+          with open(save_path + '/paths.txt', 'a+') as txt:
+            txt.write(data_str + ' ' + label_str + '\n')
+
+          temp.save(label_str, 'TIFF')
+          temp_bayer.save(data_str, 'TIFF')
+          patch_id = patch_id+1
+  time_used = time.perf_counter() - time_start
+  print('Time used:', time_used)
+
+# code taken from https://github.com/GitHberChen/Deep-Residual-Network-for-JointDemosaicing-and-Super-Resolution/blob/a224f0ea673d70c26ee17aec9f27e1a7c31cbe8e/DataSet.py#L15
+def bayer2mono(bayer_img):
+    bayer_img = np.array(bayer_img)
+    bayer_mono = np.max(bayer_img, 2)
+    return bayer_mono[:, :, np.newaxis]
+
+class CUB200_Dataset(Dataset):
+    def __init__(self, img_paths):
+        """
+        Initialize data set as a list of IDs corresponding to each item of data set
+
+        :param img_path: path to a text file containing paths to each image and bayer 
+        :param transform: applies toTensor() only
+
+        """
+        self.img_paths = pd.read_csv(img_paths, delim_whitespace=True,header=None)
+
+        
+    def get_image_from_folder(self, path):
+        """
+        gets a image by a name gathered from file list text file
+
+        :param path: path of targeted image
+        :return: a PIL image
+        """
+
+        image = Image.open(path)
+
+        return image
+
+    def __len__(self):
+        """
+        Return the length of data set using list of IDs
+
+        :return: number of samples in data set
+        """
+        return self.img_paths.shape[0]
+
+    def __getitem__(self, index):
+        """
+        Generate one item of data set.
+
+        :param index: index of item in IDs list
+
+        :return: a sample of data as a dict
+        """
+
+        img_original = self.get_image_from_folder(self.img_paths.iloc[index,1]).convert('RGB')
+        # bayer input to model will be of 1 channel only
+        img_bayer = bayer2mono(self.get_image_from_folder(self.img_paths.iloc[index,0]).convert('RGB'))
+
+        transform = transforms.Compose([transforms.ToTensor()])
+        img_original_1 = transform(img_original)
+        img_bayer_1 = transform(img_bayer)
+
+        return img_bayer_1.float(),img_original_1.float()
+
 
 def get_mcmaster_loader():
     txt_path = "./mcmaster_path.csv"
@@ -213,6 +415,42 @@ def get_mcmaster_loader():
                                                 shuffle=False, num_workers=8)
     return test_dataloader
     
+def get_CUB200_loader():
+    img_paths = "./data/CUB200_processed/paths.txt"
+
+    batch_size = 16
+    validation_split = 0.2
+    test_split = 0.1
+    shuffle_dataset = True
+    random_seed= 42
+
+    # create dataset
+    CUB200_dataset = CUB200_Dataset(img_paths=img_paths)
+    
+    # Creating data indices for training and validation splits:
+    dataset_size = len(CUB200_dataset)
+    indices = list(range(dataset_size))
+    val_split_end = int(np.floor(validation_split * dataset_size))
+    test_split_end = val_split_end+int(np.floor(test_split * dataset_size))
+
+    if shuffle_dataset:
+        np.random.seed(random_seed)
+        np.random.shuffle(indices)
+    val_indices, test_indices, train_indices = indices[:val_split_end], indices[val_split_end:test_split_end], indices[test_split_end:]
+
+    # Creating data samplers and loaders:
+    train_sampler = SubsetRandomSampler(train_indices)
+    valid_sampler = SubsetRandomSampler(val_indices)
+    test_sampler = SubsetRandomSampler(test_indices)
+    
+    train_dataloader = torch.utils.data.DataLoader(CUB200_dataset, batch_size=batch_size, 
+                                                  sampler=train_sampler, num_workers=8)
+    valid_dataloader = torch.utils.data.DataLoader(CUB200_dataset, batch_size=batch_size, 
+                                                  sampler=valid_sampler, num_workers=8)
+    test_dataloader = torch.utils.data.DataLoader(CUB200_dataset, batch_size=1, 
+                                                  sampler=test_sampler, num_workers=8)
+    
+    return {'train':train_dataloader, 'val':valid_dataloader, 'test':test_dataloader}
 
 #%%
 trainset = CIFAR10MosaicDataset(root='./data', train=True,
