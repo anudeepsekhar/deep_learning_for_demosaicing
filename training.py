@@ -1,40 +1,15 @@
-#%%
-import numpy as np
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import copy
 import time
+from tqdm import tqdm
+import copy
+from model_utils import save_ckp
 import pdb
 
-from model_utils import *
-from dataset import get_CUB200_loader
-from model import ResidualBlock_Superresolution,Net_Superresolution
-
-from tqdm import tqdm
-import os
-import math
-from PIL import Image
-
-import pickle
-import argparse
-
-resume_from_ckp = True
-trialNumber = 6
-checkpoint_path = "./checkpoint_superresolution/"+"trial"+str(trialNumber)+"checkpoint.pt"
-num_epochs = 3
-withRedNet = True
-withSRCNN = False
-
-#%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def save_ckp(state, checkpoint_dir):
-    torch.save(state, checkpoint_dir)
-
-
-def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_dir):
+def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_dir,dataloaders):
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = 1e10
@@ -49,8 +24,6 @@ def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_d
         model.train()
         print("Training...")
         training_loss = 0.0
-            
-            # epoch_samples = 0
 
         for inputs, targets in tqdm(dataloaders['train']):
             # zero the parameter gradients
@@ -62,6 +35,7 @@ def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_d
             # print('result.shape: ',result.shape)
 
             # Calculate loss
+            # pdb.set_trace()
             criterion = nn.MSELoss()
             loss = criterion(result.float(), targets.float())
  
@@ -124,53 +98,3 @@ def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_d
     # load best model weights
     model.load_state_dict(best_model_wts)
     return model
-
-
-
-#%%
-if __name__ == "__main__":
-  # # parse arguments
-  # parser = argparse.ArgumentParser()
-  # parser.add_argument('--resume_from_ckp')
-
-  dataloaders = get_CUB200_loader()
-
-  # save dataloaders to file for use in testing script
-  # Open a file and use dump()
-  var_save_dir = './data/variables'
-  var_name = 'dataloaders'+'_trial'+str(trialNumber)+'.pkl'
-  path = var_save_dir + '/' + var_name
-  if not os.path.exists(var_save_dir):
-    os.makedirs(var_save_dir)
-  with open(path, 'wb') as file:
-    # A new file will be created
-    pickle.dump(dataloaders, file)
-
-  lr = 1e-4
-  weightDecay = 5e-5
-  model = Net_Superresolution(withRedNet=withRedNet,withSRCNN=withSRCNN)
-  model = model.to(device)
-  optimizer = torch.optim.Adam(model.parameters(), lr=lr,weight_decay=weightDecay)
-  scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,'min',patience=1,factor=0.1,verbose=True)
-
-  if resume_from_ckp:
-    ckp_path = checkpoint_path
-    ckp = torch.load(ckp_path, map_location=device)
-    model.load_state_dict(ckp['state_dict'])
-    optimizer.load_state_dict(ckp['optimizer'])
-    scheduler.load_state_dict(ckp['scheduler'])
-    start_epoch = ckp['epoch']
-    print("Resuming from checkpoint...")
-    del ckp
-  else:
-    start_epoch = 0
-  
-  if not os.path.exists('checkpoint_superresolution'):
-    os.makedirs('checkpoint_superresolution')
-  
-  model = train_model(model, optimizer, scheduler, num_epochs=num_epochs, start_epoch=start_epoch,checkpoint_dir=checkpoint_path)
-  filename = "./model/"+"trial"+str(trialNumber)+".pth"
-  torch.save(model.state_dict(), filename)
-
-
-# %%

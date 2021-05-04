@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 from torchsummary import summary
+import math
 
 #%%
 def double_conv(in_channels, out_channels):
@@ -180,8 +181,10 @@ class ResidualBlock_Superresolution(nn.Module):
         super(ResidualBlock_Superresolution, self).__init__()
         self.left = nn.Sequential(
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm2d(256), # try adding bn
             nn.PReLU(),
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm2d(256), # try adding bn
         )
         self.shortcut = nn.Sequential()
         self.active_f = nn.PReLU()
@@ -195,7 +198,7 @@ class ResidualBlock_Superresolution(nn.Module):
 
 class Net_Superresolution(nn.Module):
 
-    def __init__(self, resnet_level=24):
+    def __init__(self, resnet_level=24, withRedNet=False, withSRCNN=False):
         super(Net_Superresolution, self).__init__()
 
         # ***Stage1***
@@ -211,7 +214,7 @@ class Net_Superresolution(nn.Module):
         # >>> output = pixel_shuffle(input)
         # >>> print(output.size())
         # torch.Size([1, 1, 12, 12])
-
+        # self.shortcut = nn.Sequential()
         self.stage1_2_SP_conv = nn.PixelShuffle(2)
         self.stage1_2_conv4x4 = nn.Conv2d(in_channels=64, out_channels=256,
                                           kernel_size=3, stride=1, padding=1, bias=True)
@@ -232,21 +235,117 @@ class Net_Superresolution(nn.Module):
         self.stage3_2_PReLU = nn.PReLU()
         self.stage3_3_conv3x3 = nn.Conv2d(in_channels=256, out_channels=3,
                                           kernel_size=3, stride=1, padding=1, bias=True)
+        
+        # RedNet
+        self.withRedNet = withRedNet
+        if withRedNet:
+          self.rednet20 = REDNet20()
+
+        # SRCNN
+        self.withSRCNN = withSRCNN
+        if withSRCNN:
+          self.srcnn = SRCNN(num_channels=3)
 
     def forward(self, x):
         out = self.stage1_1_conv4x4(x)
         out = self.stage1_2_SP_conv(out)
         out = self.stage1_2_conv4x4(out)
+        # out_skip = self.shortcut(out)
         out = self.stage1_2_PReLU(out)
 
         out = self.stage2_ResNetBlock(out)
+
+        # # try skip connect here
+        # out += out_skip
 
         out = self.stage3_1_SP_conv(out)
         out = self.stage3_2_conv3x3(out)
         out = self.stage3_2_PReLU(out)
         out = self.stage3_3_conv3x3(out)
 
+        # rednet (if applicable)
+        if self.withRedNet:
+          out = self.rednet20(out)
+
+        # SRCNN (if applicable)
+        if self.withSRCNN:
+          out = self.srcnn(out)
+
         return out
+
+# this performs upsampling by scale factor 2, then pass it through REDNet20
+class REDNet_model(nn.Module):
+  def __init__(self):
+    super().__init__()
+    self.rednet = REDNet20()
+    self.upsample = nn.Upsample(scale_factor=2,mode='bicubic')
+
+  def forward(self,x):
+    out = self.upsample(x)
+    out = self.rednet(out)
+    return out
+
+# this code is taken from https://github.com/yjn870/REDNet-pytorch/blob/11ee46722a4fbee48b37f417e4329026d5b78bfa/model.py#L35
+class REDNet20(nn.Module):
+    def __init__(self, num_layers=10, num_features=64):
+        super(REDNet20, self).__init__()
+        self.num_layers = num_layers
+
+        conv_layers = []
+        deconv_layers = []
+
+        conv_layers.append(nn.Sequential(nn.Conv2d(3, num_features, kernel_size=3, stride=2, padding=1),
+                                         nn.ReLU(inplace=True)))
+        for i in range(num_layers - 1):
+            conv_layers.append(nn.Sequential(nn.Conv2d(num_features, num_features, kernel_size=3, padding=1),
+                                             nn.ReLU(inplace=True)))
+
+        for i in range(num_layers - 1):
+            deconv_layers.append(nn.Sequential(nn.ConvTranspose2d(num_features, num_features, kernel_size=3, padding=1),
+                                               nn.ReLU(inplace=True)))
+        deconv_layers.append(nn.ConvTranspose2d(num_features, 3, kernel_size=3, stride=2, padding=1, output_padding=1))
+
+        self.conv_layers = nn.Sequential(*conv_layers)
+        self.deconv_layers = nn.Sequential(*deconv_layers)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        residual = x
+
+        conv_feats = []
+        for i in range(self.num_layers):
+            x = self.conv_layers[i](x)
+            if (i + 1) % 2 == 0 and len(conv_feats) < math.ceil(self.num_layers / 2) - 1:
+                conv_feats.append(x)
+
+        conv_feats_idx = 0
+        for i in range(self.num_layers):
+            x = self.deconv_layers[i](x)
+            if (i + 1 + self.num_layers) % 2 == 0 and conv_feats_idx < len(conv_feats):
+                conv_feat = conv_feats[-(conv_feats_idx + 1)]
+                conv_feats_idx += 1
+                x = x + conv_feat
+                x = self.relu(x)
+
+        x += residual
+        x = self.relu(x)
+
+        return x
+
+# code taken from https://github.com/yjn870/SRCNN-pytorch/blob/master/models.py
+class SRCNN(nn.Module):
+    def __init__(self, num_channels=1):
+        super(SRCNN, self).__init__()
+        self.conv1 = nn.Conv2d(num_channels, 64, kernel_size=9, padding=9 // 2)
+        self.conv2 = nn.Conv2d(64, 32, kernel_size=5, padding=5 // 2)
+        self.conv3 = nn.Conv2d(32, num_channels, kernel_size=5, padding=5 // 2)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.conv3(x)
+        return x
 
 #%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

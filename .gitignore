@@ -2,6 +2,9 @@ data/
 __pycache__/
 model/
 git.ipynb
+git1.ipynb
+git2.ipynb
 checkpoint/
 checkpoint_resnet/
 checkpoint_superresolution/
+checkpoint_rednet/

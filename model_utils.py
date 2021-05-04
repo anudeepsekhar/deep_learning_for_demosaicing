@@ -3,6 +3,9 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 import numpy as np
 
+def save_ckp(state, checkpoint_dir):
+    torch.save(state, checkpoint_dir)
+
 # create masks where true pixel locations have value zero
 def create_RGB_masks(img):
   Nc, Ny, Nx = img.shape

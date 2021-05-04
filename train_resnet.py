@@ -160,8 +160,7 @@ if __name__ == "__main__":
     os.makedirs('checkpoint_resnet')
   
   model = train_model(model, optimizer, scheduler, num_epochs=num_epochs, start_epoch=start_epoch,checkpoint_dir=checkpoint_path)
-  if not os.path.exists('model_resnet'):
-    os.makedirs('model_resnet')
+
   filename = "./model/"+"trial"+str(trialNumber)+".pth"
   torch.save(model.state_dict(), filename)
                 

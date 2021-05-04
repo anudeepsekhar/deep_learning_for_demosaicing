@@ -320,7 +320,7 @@ def preprocess_CUB200_Dataset(save_path, txt_file_path,img_dir):
     img = Image.open(image_full_path)
     # only proceed if image has three channels
     if np.array(img).ndim ==3:
-      img = DownSize(img)
+      ## img = DownSize(img) # Try removing downsizing
       # img.show()
       w, h = img.size
 
@@ -340,7 +340,8 @@ def preprocess_CUB200_Dataset(save_path, txt_file_path,img_dir):
 
           data_str = save_path + '/' + str(image_id) + '/' + str(image_id) +'_'+ str(patch_id)+'_'+'data.TIF'
           label_str = save_path + '/' + str(image_id) + '/' + str(image_id) +'_'+ str(patch_id)+'_'+ 'label.TIF'
-          with open(save_path + '/paths.txt', 'a+') as txt:
+          with open('./data/paths.txt', 'a+') as txt: # save paths.txt in data folder instead
+          # with open(save_path + '/paths.txt', 'a+') as txt:
             txt.write(data_str + ' ' + label_str + '\n')
 
           temp.save(label_str, 'TIFF')
@@ -348,6 +349,18 @@ def preprocess_CUB200_Dataset(save_path, txt_file_path,img_dir):
           patch_id = patch_id+1
   time_used = time.perf_counter() - time_start
   print('Time used:', time_used)
+
+# code taken from https://discuss.pytorch.org/t/how-to-add-noise-to-mnist-dataset-when-using-pytorch/59745/2
+class AddGaussianNoise(object):
+    def __init__(self, mean=0., std=1.):
+        self.std = std
+        self.mean = mean
+        
+    def __call__(self, tensor):
+        return tensor + torch.randn(tensor.size()) * self.std + self.mean
+    
+    def __repr__(self):
+        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
 
 # code taken from https://github.com/GitHberChen/Deep-Residual-Network-for-JointDemosaicing-and-Super-Resolution/blob/a224f0ea673d70c26ee17aec9f27e1a7c31cbe8e/DataSet.py#L15
 def bayer2mono(bayer_img):
@@ -361,11 +374,10 @@ class CUB200_Dataset(Dataset):
         Initialize data set as a list of IDs corresponding to each item of data set
 
         :param img_path: path to a text file containing paths to each image and bayer 
-        :param transform: applies toTensor() only
+        :param three_channel_bayer: True or False
 
         """
         self.img_paths = pd.read_csv(img_paths, delim_whitespace=True,header=None)
-
         
     def get_image_from_folder(self, path):
         """
@@ -397,15 +409,75 @@ class CUB200_Dataset(Dataset):
         """
 
         img_original = self.get_image_from_folder(self.img_paths.iloc[index,1]).convert('RGB')
-        # bayer input to model will be of 1 channel only
-        img_bayer = bayer2mono(self.get_image_from_folder(self.img_paths.iloc[index,0]).convert('RGB'))
 
-        transform = transforms.Compose([transforms.ToTensor()])
-        img_original_1 = transform(img_original)
-        img_bayer_1 = transform(img_bayer)
+        img_bayer = bayer2mono(self.get_image_from_folder(self.img_paths.iloc[index,0]).convert('RGB'))
+        
+        # convert to tensor in range 0-1
+        transform1 = transforms.Compose([transforms.ToTensor()])
+        # transform2 = transforms.Compose([transforms.ToTensor(),AddGaussianNoise(0., 1.)])
+        img_original_1 = transform1(img_original)
+        img_bayer_1 = transform1(img_bayer)
 
         return img_bayer_1.float(),img_original_1.float()
 
+class CUB200_Dataset_threeBayerChannel(Dataset):
+    def __init__(self, img_paths, three_channel_bayer=False):
+        """
+        Initialize data set as a list of IDs corresponding to each item of data set
+
+        :param img_path: path to a text file containing paths to each image and bayer 
+        :param three_channel_bayer: True or False
+
+        """
+        self.img_paths = pd.read_csv(img_paths, delim_whitespace=True,header=None)
+
+        self.three_channel_bayer = three_channel_bayer
+        
+    def get_image_from_folder(self, path):
+        """
+        gets a image by a name gathered from file list text file
+
+        :param path: path of targeted image
+        :return: a PIL image
+        """
+
+        image = Image.open(path)
+
+        return image
+
+    def __len__(self):
+        """
+        Return the length of data set using list of IDs
+
+        :return: number of samples in data set
+        """
+        return self.img_paths.shape[0]
+
+    def __getitem__(self, index):
+        """
+        Generate one item of data set.
+
+        :param index: index of item in IDs list
+
+        :return: a sample of data as a dict
+        """
+
+        img_original = self.get_image_from_folder(self.img_paths.iloc[index,1]).convert('RGB')
+ 
+        if not self.three_channel_bayer:
+          # bayer input to model will be of 1 channel only
+          img_bayer = bayer2mono(self.get_image_from_folder(self.img_paths.iloc[index,0]).convert('RGB'))
+        else:
+          # bayer input to model will be of 3 channels
+          img_bayer = self.get_image_from_folder(self.img_paths.iloc[index,0]).convert('RGB')
+
+        # convert to tensor in range 0-1
+        transform1 = transforms.Compose([transforms.ToTensor()])
+        # transform2 = transforms.Compose([transforms.ToTensor(),AddGaussianNoise(0., 1.)])
+        img_original_1 = transform1(img_original)
+        img_bayer_1 = transform1(img_bayer)
+
+        return img_bayer_1.float(),img_original_1.float()
 
 def get_mcmaster_loader():
     txt_path = "./mcmaster_path.csv"
@@ -415,18 +487,33 @@ def get_mcmaster_loader():
                                                 shuffle=False, num_workers=8)
     return test_dataloader
     
-def get_CUB200_loader():
-    img_paths = "./data/CUB200_processed/paths.txt"
+def get_CUB200_loader(three_channel_bayer=None):
+    img_paths = "./data/paths.txt"
 
     batch_size = 16
     validation_split = 0.2
     test_split = 0.1
     shuffle_dataset = True
     random_seed= 42
+    
+    # eliminating randomness
+    worker_init_fn=np.random.seed(random_seed)
+    # numpy vars
+    np.random.seed(random_seed)
+    # Pytorch vars
+    torch.manual_seed(random_seed)
+    # cuda
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic=True
+    
 
     # create dataset
-    CUB200_dataset = CUB200_Dataset(img_paths=img_paths)
-    
+    if three_channel_bayer is not None:
+      CUB200_dataset = CUB200_Dataset_threeBayerChannel(img_paths=img_paths,three_channel_bayer=three_channel_bayer)
+    else:
+      CUB200_dataset = CUB200_Dataset(img_paths=img_paths)
     # Creating data indices for training and validation splits:
     dataset_size = len(CUB200_dataset)
     indices = list(range(dataset_size))
@@ -442,13 +529,16 @@ def get_CUB200_loader():
     train_sampler = SubsetRandomSampler(train_indices)
     valid_sampler = SubsetRandomSampler(val_indices)
     test_sampler = SubsetRandomSampler(test_indices)
-    
+    print("train_indices: ",train_indices)
+    print("val_indices: ",val_indices)
+    print("test_indices: ",test_indices)
+
     train_dataloader = torch.utils.data.DataLoader(CUB200_dataset, batch_size=batch_size, 
-                                                  sampler=train_sampler, num_workers=8)
+                                                  sampler=train_sampler, num_workers=0,worker_init_fn=worker_init_fn)
     valid_dataloader = torch.utils.data.DataLoader(CUB200_dataset, batch_size=batch_size, 
-                                                  sampler=valid_sampler, num_workers=8)
+                                                  sampler=valid_sampler, num_workers=0,worker_init_fn=worker_init_fn)
     test_dataloader = torch.utils.data.DataLoader(CUB200_dataset, batch_size=1, 
-                                                  sampler=test_sampler, num_workers=8)
+                                                  sampler=test_sampler, num_workers=0,worker_init_fn=worker_init_fn)
     
     return {'train':train_dataloader, 'val':valid_dataloader, 'test':test_dataloader}
 
