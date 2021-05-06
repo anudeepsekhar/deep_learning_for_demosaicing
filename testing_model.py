@@ -22,22 +22,22 @@ def test_model(model,image_saving_dir,dataloaders):
 
       result = model(inputs)
 
-      # replace with original correct pixel values in certain locations
+      # # replace with original correct pixel values in certain locations
   
-      # green channel
-      for k in range(batch_size):
-        for i in range(0,Ny,1): #row
-          for j in range(0,Nx,2): #column
-            if (i%2)==0: # even rows
-              result[k,1,i,j+1] = targets[k,1,i,j+1]
-            elif (i%2)==1: # odd rows
-              result[k,1,i,j] = targets[k,1,i,j]
+      # # green channel
+      # for k in range(batch_size):
+      #   for i in range(0,Ny,1): #row
+      #     for j in range(0,Nx,2): #column
+      #       if (i%2)==0: # even rows
+      #         result[k,1,i,j+1] = targets[k,1,i,j+1]
+      #       elif (i%2)==1: # odd rows
+      #         result[k,1,i,j] = targets[k,1,i,j]
 
-      # red channel and blue channel
-      for i in range(0,Ny,2):
-        for j in range(0,Nx,2):
-          result[k,2,i,j] = targets[k,2,i,j] # blue channel
-          result[k,0,i+1,j+1] = targets[k,0,i+1,j+1] # red channel
+      # # red channel and blue channel
+      # for i in range(0,Ny,2):
+      #   for j in range(0,Nx,2):
+      #     result[k,2,i,j] = targets[k,2,i,j] # blue channel
+      #     result[k,0,i+1,j+1] = targets[k,0,i+1,j+1] # red channel
 
       # Calculate loss
       criterion = nn.MSELoss()

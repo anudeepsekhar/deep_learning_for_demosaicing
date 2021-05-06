@@ -347,6 +347,18 @@ class SRCNN(nn.Module):
         x = self.conv3(x)
         return x
 
+# this performs upsampling by scale factor 2, then pass it through a model instance of a certain class
+class model_with_upsampling(nn.Module):
+  def __init__(self,model_instance):
+    super().__init__()
+    self.model = model_instance
+    self.upsample = nn.Upsample(scale_factor=2,mode='bicubic')
+
+  def forward(self,x):
+    out = self.upsample(x)
+    out = self.model(out)
+    return out
+
 #%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # %%

@@ -22,7 +22,7 @@ import pickle
 import argparse
 
 resume_from_ckp = False
-trialNumber = 8
+trialNumber = 9
 checkpoint_path = "./checkpoint_rednet/"+"trial"+str(trialNumber)+"checkpoint.pt"
 num_epochs = 3
 

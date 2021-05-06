@@ -10,7 +10,7 @@ import numpy as np
 from testing_model import test_model
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-trialNumber = 8
+trialNumber = 9
 
 if __name__ == "__main__":
   var_save_dir = './data/variables'

@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as data
 from torchvision.transforms import ToPILImage 
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.sampler import SubsetRandomSampler
+from torch.utils.data.sampler import SubsetRandomSampler, SequentialSampler
 from tqdm import tqdm
 import time
 
@@ -526,9 +526,13 @@ def get_CUB200_loader(three_channel_bayer=None):
     val_indices, test_indices, train_indices = indices[:val_split_end], indices[val_split_end:test_split_end], indices[test_split_end:]
 
     # Creating data samplers and loaders:
+
+    # create the test subset explicitly because it needs to be sampled in a particular order
+    CUB200_dataset_test = torch.utils.data.Subset(CUB200_dataset, test_indices)
+
     train_sampler = SubsetRandomSampler(train_indices)
     valid_sampler = SubsetRandomSampler(val_indices)
-    test_sampler = SubsetRandomSampler(test_indices)
+    test_sampler = SequentialSampler(CUB200_dataset_test)
     print("train_indices: ",train_indices)
     print("val_indices: ",val_indices)
     print("test_indices: ",test_indices)
@@ -537,7 +541,7 @@ def get_CUB200_loader(three_channel_bayer=None):
                                                   sampler=train_sampler, num_workers=0,worker_init_fn=worker_init_fn)
     valid_dataloader = torch.utils.data.DataLoader(CUB200_dataset, batch_size=batch_size, 
                                                   sampler=valid_sampler, num_workers=0,worker_init_fn=worker_init_fn)
-    test_dataloader = torch.utils.data.DataLoader(CUB200_dataset, batch_size=1, 
+    test_dataloader = torch.utils.data.DataLoader(CUB200_dataset_test, batch_size=1, 
                                                   sampler=test_sampler, num_workers=0,worker_init_fn=worker_init_fn)
     
     return {'train':train_dataloader, 'val':valid_dataloader, 'test':test_dataloader}
