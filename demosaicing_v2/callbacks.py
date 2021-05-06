@@ -14,5 +14,4 @@ class VizCallback(keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         if epoch%self.freq==0:
             pred = self.model.predict(self.test_cfa)
-            psnr = self.calc_psnr(self.test_img,pred)
-            self.plot_data(self.test_img, self.test_cfa, self.model)
+            self.plot_data(self.test_img, self.test_cfa, epoch, self.model, )
