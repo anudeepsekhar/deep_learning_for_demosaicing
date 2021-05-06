@@ -1,4 +1,6 @@
-data/
+!data/
+data/*
+!data/paths.txt
 __pycache__/
 model/
 git.ipynb
