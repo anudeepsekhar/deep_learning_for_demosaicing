@@ -360,10 +360,10 @@ class model_with_upsampling(nn.Module):
     return out
 
 #%%
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# %%
-model = UNet(n_class=3)
-model = model.to(device)
-# %%
-summary(model, input_size=(3, 64, 64))
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# # %%
+# model = UNet(n_class=3)
+# model = model.to(device)
+# # %%
+# summary(model, input_size=(3, 64, 64))
 # %%

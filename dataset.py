@@ -533,9 +533,9 @@ def get_CUB200_loader(three_channel_bayer=None):
     train_sampler = SubsetRandomSampler(train_indices)
     valid_sampler = SubsetRandomSampler(val_indices)
     test_sampler = SequentialSampler(CUB200_dataset_test)
-    print("train_indices: ",train_indices)
-    print("val_indices: ",val_indices)
-    print("test_indices: ",test_indices)
+    # print("train_indices: ",train_indices)
+    # print("val_indices: ",val_indices)
+    # print("test_indices: ",test_indices)
 
     train_dataloader = torch.utils.data.DataLoader(CUB200_dataset, batch_size=batch_size, 
                                                   sampler=train_sampler, num_workers=0,worker_init_fn=worker_init_fn)
@@ -547,15 +547,15 @@ def get_CUB200_loader(three_channel_bayer=None):
     return {'train':train_dataloader, 'val':valid_dataloader, 'test':test_dataloader}
 
 #%%
-trainset = CIFAR10MosaicDataset(root='./data', train=True,
-                                        download=True, transform=transform)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=128,
-                                          shuffle=True, num_workers=2)
+# trainset = CIFAR10MosaicDataset(root='./data', train=True,
+#                                         download=True, transform=transform)
+# trainloader = torch.utils.data.DataLoader(trainset, batch_size=128,
+#                                           shuffle=True, num_workers=2)
 
-testset = CIFAR10MosaicDataset(root='./data', train=False,
-                                       download=True, transform=transform)
-testloader = torch.utils.data.DataLoader(testset, batch_size=128,
-                                         shuffle=False, num_workers=2)
+# testset = CIFAR10MosaicDataset(root='./data', train=False,
+#                                        download=True, transform=transform)
+# testloader = torch.utils.data.DataLoader(testset, batch_size=128,
+#                                          shuffle=False, num_workers=2)
 
 
 
@@ -565,10 +565,10 @@ def get_data_loaders():
 
 
 # %%
-for batch in trainloader:
-    inputs, targets = batch
-    print(inputs.shape)
-    print(targets.shape)
-    plt.imshow(inputs[0,0,:])
-    break
+# for batch in trainloader:
+#     inputs, targets = batch
+#     print(inputs.shape)
+#     print(targets.shape)
+#     plt.imshow(inputs[0,0,:])
+#     break
 # %%

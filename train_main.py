@@ -31,7 +31,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def lr_checker(lr):
     lr = float(lr)
-    if lr < 1e-6 or num > 1e-1:
+    if lr < 1e-6 or lr > 1e-1:
         raise argparse.ArgumentTypeError('invalid learning rate, it must be between 1e-6 and 1e-1')
     return lr
 
