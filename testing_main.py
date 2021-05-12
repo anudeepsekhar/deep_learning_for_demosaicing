@@ -8,7 +8,8 @@ import torch.nn as nn
 import numpy as np
 import argparse
 from testing_model import test_model
-from model import Net_Superresolution,REDNet_model,SRCNN,model_with_upsampling
+from model import Net_Superresolution,REDNet_model,SRCNN,model_with_upsampling,VDSR_Net
+from model_utils import str2bool
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -21,12 +22,16 @@ if __name__ == "__main__":
                         help="Trial number.")
   parser.add_argument("--model", type=str, required=True,
                         help="The model you want to use.")
+  parser.add_argument("--psnr_only", type=str2bool, nargs='?',
+                        default=False,
+                        help="Compute psnr only, without saving resulting images.")
 
   # Parse the argument
   args = parser.parse_args()
 
   # assign the variables according to the argument values
   trialNumber = args.trial_number
+  psnr_only = args.psnr_only
 
   if args.model == 'deep_residual_network':
     model = Net_Superresolution(withRedNet=False,withSRCNN=False)
@@ -39,6 +44,9 @@ if __name__ == "__main__":
   elif args.model == 'SRCNN':
     SRCNN_model = SRCNN(num_channels=3)
     model = model_with_upsampling(SRCNN_model)
+  elif args.model == 'VDSR':
+    VDSR_model = VDSR_Net()
+    model = model_with_upsampling(VDSR_model)
   else:
     raise argparse.ArgumentError("Invalid model")
 
@@ -57,4 +65,7 @@ if __name__ == "__main__":
   image_saving_dir = './data/CUB200_outs'
   if not os.path.exists(image_saving_dir):
     os.makedirs(image_saving_dir)
-  test_model(model,image_saving_dir,dataloaders)
+  if psnr_only:
+    test_model(model,image_saving_dir,dataloaders,psnr_only=True)
+  else:
+    test_model(model,image_saving_dir,dataloaders)

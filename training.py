@@ -9,7 +9,7 @@ import pdb
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_dir,dataloaders):
+def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_dir,dataloaders,clip_norm=None,scheduler_no_arg=None):
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = 1e10
@@ -38,8 +38,13 @@ def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_d
             # pdb.set_trace()
             criterion = nn.MSELoss()
             loss = criterion(result.float(), targets.float())
- 
+
             loss.backward()
+            
+            # clip gradient if applicable
+            if clip_norm is not None:
+              nn.utils.clip_grad_norm(model.parameters(),clip_norm)
+
             optimizer.step()
 
             training_loss += loss.item()
@@ -82,7 +87,10 @@ def train_model(model, optimizer, scheduler, num_epochs,start_epoch,checkpoint_d
         val_loss /= num_batch
 
         print('Epoch: {}, Average validating loss: {:.6f}'.format(epoch+1,val_loss))
-        scheduler.step(val_loss)
+        if scheduler_no_arg is None:
+          scheduler.step(val_loss)
+        elif scheduler_no_arg is True:
+          scheduler.step()
 
 
         # deep copy the model

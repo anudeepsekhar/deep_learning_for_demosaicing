@@ -6,6 +6,16 @@ import numpy as np
 def save_ckp(state, checkpoint_dir):
     torch.save(state, checkpoint_dir)
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 # create masks where true pixel locations have value zero
 def create_RGB_masks(img):
   Nc, Ny, Nx = img.shape

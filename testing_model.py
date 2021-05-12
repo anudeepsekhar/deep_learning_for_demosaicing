@@ -8,7 +8,7 @@ import numpy as np
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def test_model(model,image_saving_dir,dataloaders):
+def test_model(model,image_saving_dir,dataloaders,psnr_only=None):
   print("Testing...")
   with torch.no_grad():
     model.eval()
@@ -22,23 +22,6 @@ def test_model(model,image_saving_dir,dataloaders):
 
       result = model(inputs)
 
-      # # replace with original correct pixel values in certain locations
-  
-      # # green channel
-      # for k in range(batch_size):
-      #   for i in range(0,Ny,1): #row
-      #     for j in range(0,Nx,2): #column
-      #       if (i%2)==0: # even rows
-      #         result[k,1,i,j+1] = targets[k,1,i,j+1]
-      #       elif (i%2)==1: # odd rows
-      #         result[k,1,i,j] = targets[k,1,i,j]
-
-      # # red channel and blue channel
-      # for i in range(0,Ny,2):
-      #   for j in range(0,Nx,2):
-      #     result[k,2,i,j] = targets[k,2,i,j] # blue channel
-      #     result[k,0,i+1,j+1] = targets[k,0,i+1,j+1] # red channel
-
       # Calculate loss
       criterion = nn.MSELoss()
       loss = criterion(result.float(), targets.float())
@@ -47,7 +30,8 @@ def test_model(model,image_saving_dir,dataloaders):
 
       # compute peak snr
       # max pixel value
-      peak_pixel_value = torch.max(result)
+      peak_pixel_value = 1.0
+      # peak_pixel_value = torch.max(result)
       # MSE
       loss = nn.MSELoss(reduction='mean')
       mse = loss(result,targets)
@@ -58,37 +42,29 @@ def test_model(model,image_saving_dir,dataloaders):
 
       # pdb.set_trace()
 
-      result = Image.fromarray((torch.squeeze(result).permute(1,2,0).cpu().detach().numpy()*255).astype(np.uint8))
-      targets = Image.fromarray((torch.squeeze(targets).permute(1,2,0).cpu().detach().numpy()*255).astype(np.uint8))
-
-      # saves the images and image paths to one same folder
+      # create the folder for saving output images and psnr result
       image_save_folder = image_saving_dir
       if not os.path.exists(image_save_folder):
         os.makedirs(image_save_folder)
 
-      data_str = image_save_folder + '/' + str(image_id) +'_'+'result.TIF'
-      label_str = image_save_folder + '/' + str(image_id) +'_'+ 'original.TIF'
+      # saves the images and image paths to one same folder if necessary
+      if (psnr_only is None) or (psnr_only is False):
+        result = Image.fromarray((torch.squeeze(result).permute(1,2,0).cpu().detach().numpy()*255).astype(np.uint8))
+        targets = Image.fromarray((torch.squeeze(targets).permute(1,2,0).cpu().detach().numpy()*255).astype(np.uint8))
 
-      with open(image_saving_dir + '/test_result_paths.txt', 'a+') as txt:
-        txt.write(data_str + ' ' + label_str + '\n')
         
-      # # saves the images and image paths 
-      # image_save_folder = image_saving_dir + '/' + str(image_id)
-      # if not os.path.exists(image_save_folder):
-      #   os.makedirs(image_save_folder)
+        data_str = image_save_folder + '/' + str(image_id) +'_'+'result.TIF'
+        label_str = image_save_folder + '/' + str(image_id) +'_'+ 'original.TIF'
 
-      # data_str = image_save_folder + '/' + str(image_id) +'_'+'result.TIF'
-      # label_str = image_save_folder + '/' + str(image_id) +'_'+ 'original.TIF'
+        with open(image_saving_dir + '/test_result_paths.txt', 'a+') as txt:
+          txt.write(data_str + ' ' + label_str + '\n')
 
-      # with open(image_saving_dir + '/test_result_paths.txt', 'a+') as txt:
-      #   txt.write(data_str + ' ' + label_str + '\n')
-      
-      targets.save(label_str, 'TIFF')
-      result.save(data_str, 'TIFF')
+        targets.save(label_str, 'TIFF')
+        result.save(data_str, 'TIFF')
       
       # saves the peak snr result
       with open(image_saving_dir + '/test_result_psnr.txt', 'a+') as txt:
-        txt.write(str(image_id) + ' ' + str(peak_snr))
+        txt.write(str(image_id) + ' ' + str(peak_snr) + '\n')
 
       image_id = image_id+1
 

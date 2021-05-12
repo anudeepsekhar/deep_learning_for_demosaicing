@@ -19,9 +19,11 @@ import os
 import os.path
 import numpy as np
 import pickle
+import pdb
 #%%
 
 BLOCK_SIZE = 128  # Ground Truth image size
+IMAGE_SIZE = 512,512
 TRAIN_DATA_SAVE_PATH = "./CUB200_TRAIN_DATA"
 TEST_DATA_SAVE_PATH = "./CUB200_TEST_DATA"
 
@@ -350,6 +352,36 @@ def preprocess_CUB200_Dataset(save_path, txt_file_path,img_dir):
   time_used = time.perf_counter() - time_start
   print('Time used:', time_used)
 
+def preprocess_CUB200_Dataset_no_crop(save_path, txt_file_path,img_dir):
+  if not os.path.exists(save_path):
+    os.makedirs(save_path)
+  image_info = pd.read_csv(txt_file_path, delim_whitespace=True,header=None,names=['id','path'])
+  time_start = time.perf_counter()
+
+  for i in tqdm(range(image_info.shape[0])):
+    image_path = image_info.iloc[i,1]
+    image_id = image_info.iloc[i,0]
+    image_full_path = img_dir + '/' + image_path
+    img = Image.open(image_full_path)
+    
+    # only proceed if image has three channels
+    if np.array(img).ndim ==3:
+      img = img.resize(IMAGE_SIZE, Image.ANTIALIAS) # resize image to 512x512
+      
+      temp_bayer = To_Bayer(img)
+      # pdb.set_trace()
+      data_str = save_path + '/' + str(image_id) +'_'+'data.TIF'
+      label_str = save_path + '/' + str(image_id) +'_'+ 'label.TIF'
+      with open('./data/paths_no_crop.txt', 'a+') as txt: # save paths_no_crop.txt in data folder instead
+      # with open(save_path + '/paths.txt', 'a+') as txt:
+        txt.write(data_str + ' ' + label_str + '\n')
+
+      img.save(label_str, 'TIFF')
+      temp_bayer.save(data_str, 'TIFF')
+
+  time_used = time.perf_counter() - time_start
+  print('Time used:', time_used)
+
 # code taken from https://discuss.pytorch.org/t/how-to-add-noise-to-mnist-dataset-when-using-pytorch/59745/2
 class AddGaussianNoise(object):
     def __init__(self, mean=0., std=1.):
@@ -369,7 +401,7 @@ def bayer2mono(bayer_img):
     return bayer_mono[:, :, np.newaxis]
 
 class CUB200_Dataset(Dataset):
-    def __init__(self, img_paths):
+    def __init__(self, img_paths,transform=None):
         """
         Initialize data set as a list of IDs corresponding to each item of data set
 
@@ -378,7 +410,8 @@ class CUB200_Dataset(Dataset):
 
         """
         self.img_paths = pd.read_csv(img_paths, delim_whitespace=True,header=None)
-        
+        # self.transform = transform
+
     def get_image_from_folder(self, path):
         """
         gets a image by a name gathered from file list text file
@@ -411,17 +444,24 @@ class CUB200_Dataset(Dataset):
         img_original = self.get_image_from_folder(self.img_paths.iloc[index,1]).convert('RGB')
 
         img_bayer = bayer2mono(self.get_image_from_folder(self.img_paths.iloc[index,0]).convert('RGB'))
-        
+
         # convert to tensor in range 0-1
         transform1 = transforms.Compose([transforms.ToTensor()])
         # transform2 = transforms.Compose([transforms.ToTensor(),AddGaussianNoise(0., 1.)])
+
         img_original_1 = transform1(img_original)
         img_bayer_1 = transform1(img_bayer)
+
+        # # apply data augmentation if necessary
+        # if self.transform is not None:
+        #   img_bayer_1 = self.transform(img_bayer)
+        # else:
+        #   img_bayer_1 = transform1(img_bayer)
 
         return img_bayer_1.float(),img_original_1.float()
 
 class CUB200_Dataset_threeBayerChannel(Dataset):
-    def __init__(self, img_paths, three_channel_bayer=False):
+    def __init__(self, img_paths, three_channel_bayer=False, transform=None):
         """
         Initialize data set as a list of IDs corresponding to each item of data set
 
@@ -432,7 +472,7 @@ class CUB200_Dataset_threeBayerChannel(Dataset):
         self.img_paths = pd.read_csv(img_paths, delim_whitespace=True,header=None)
 
         self.three_channel_bayer = three_channel_bayer
-        
+
     def get_image_from_folder(self, path):
         """
         gets a image by a name gathered from file list text file
@@ -474,8 +514,15 @@ class CUB200_Dataset_threeBayerChannel(Dataset):
         # convert to tensor in range 0-1
         transform1 = transforms.Compose([transforms.ToTensor()])
         # transform2 = transforms.Compose([transforms.ToTensor(),AddGaussianNoise(0., 1.)])
+
         img_original_1 = transform1(img_original)
         img_bayer_1 = transform1(img_bayer)
+
+        # # apply data augmentation if applicable
+        # if self.transform is not None:
+        #   img_bayer_1 = self.transform(img_bayer)
+        # else:
+        #   img_bayer_1 = transform1(img_bayer)
 
         return img_bayer_1.float(),img_original_1.float()
 
@@ -487,10 +534,16 @@ def get_mcmaster_loader():
                                                 shuffle=False, num_workers=8)
     return test_dataloader
     
-def get_CUB200_loader(three_channel_bayer=None):
-    img_paths = "./data/paths.txt"
+def get_CUB200_loader(three_channel_bayer=None,no_crop=None,batch_size=None,transform=None):
+    if no_crop is None:
+      img_paths = "./data/paths.txt"
+    elif no_crop is True:
+      img_paths = "./data/paths_no_crop.txt"
 
-    batch_size = 16
+    if batch_size is None:
+      batch_size = 16
+    else:
+      batch_size = batch_size
     validation_split = 0.2
     test_split = 0.1
     shuffle_dataset = True
@@ -511,9 +564,15 @@ def get_CUB200_loader(three_channel_bayer=None):
 
     # create dataset
     if three_channel_bayer is not None:
-      CUB200_dataset = CUB200_Dataset_threeBayerChannel(img_paths=img_paths,three_channel_bayer=three_channel_bayer)
+      if transform is not None:
+        CUB200_dataset = CUB200_Dataset_threeBayerChannel(img_paths=img_paths,three_channel_bayer=three_channel_bayer,transform=transform)
+      else:
+        CUB200_dataset = CUB200_Dataset_threeBayerChannel(img_paths=img_paths,three_channel_bayer=three_channel_bayer)
     else:
-      CUB200_dataset = CUB200_Dataset(img_paths=img_paths)
+      if transform is not None:
+        CUB200_dataset = CUB200_Dataset(img_paths=img_paths,transform=transform)
+      else:
+        CUB200_dataset = CUB200_Dataset(img_paths=img_paths)
     # Creating data indices for training and validation splits:
     dataset_size = len(CUB200_dataset)
     indices = list(range(dataset_size))
