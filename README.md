@@ -2,6 +2,8 @@
 
 Video summary: https://www.youtube.com/watch?v=PaszhVmOJBU
 
+Report: https://drive.google.com/file/d/1iTXtseetwVAs5n_7BtZtqHeuIGCPeNtz/view?usp=sharing
+
 ## Dataset
 To obtain the CUB200 dataset, follow these steps:
 1. Create `data` folder if it does not exist yet
